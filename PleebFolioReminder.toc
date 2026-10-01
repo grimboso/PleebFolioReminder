@@ -3,7 +3,8 @@
 ## Notes: Keeps Omnium Folio choices aligned with specializations and talent loadouts.
 ## Author: Pleeb
 ## Category: PleebUI
-## Version: 0.5
+## Version: @project-version@
+## X-Curse-Project-ID: 1707349
 ## OptionalDeps: PleebUI
 ## SavedVariablesPerCharacter: PleebFolioReminderDB
 
