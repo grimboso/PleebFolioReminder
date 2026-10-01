@@ -594,8 +594,13 @@ RefreshOptionsFrame = function(frame)
   frame.AutoApplyCheck.Label:SetAlpha(ns.db.enabled and 1 or 0.45)
 
   local specs = ns.GetSpecs()
+  if #specs == 0 then
+    return
+  end
+
   if not selectedSpecID or not ContainsID(specs, selectedSpecID) then
-    selectedSpecID = ns.GetCurrentSpecID() or specs[1].id
+    local currentSpecID = ns.GetCurrentSpecID()
+    selectedSpecID = ContainsID(specs, currentSpecID) and currentSpecID or specs[1].id
     selectedLoadoutID = nil
   end
 
