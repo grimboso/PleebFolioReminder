@@ -1,0 +1,11 @@
+## Interface: 120100
+## Title: PleebFolio Reminder
+## Notes: Keeps Omnium Folio choices aligned with specializations and talent loadouts.
+## Author: Pleeb
+## Category: PleebUI
+## Version: 0.5
+## OptionalDeps: PleebUI
+## SavedVariablesPerCharacter: PleebFolioReminderDB
+
+PleebFolioReminder_Core.lua
+PleebFolioReminder_Config.lua
