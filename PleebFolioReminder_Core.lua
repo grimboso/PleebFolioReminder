@@ -72,7 +72,12 @@ end
 
 function ns.GetCurrentSpecID()
   local specIndex = C_SpecializationInfo.GetSpecialization()
-  return specIndex and C_SpecializationInfo.GetSpecializationInfo(specIndex) or nil
+  local specID = specIndex and C_SpecializationInfo.GetSpecializationInfo(specIndex) or nil
+  if specID == 0 then
+    return nil
+  end
+
+  return specID
 end
 
 function ns.GetSpecs()
