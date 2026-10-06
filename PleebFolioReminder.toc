@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120100, 120105
 ## Title: PleebFolio Reminder
 ## Notes: Keeps Omnium Folio choices aligned with specializations and talent loadouts.
 ## Author: Pleeb
