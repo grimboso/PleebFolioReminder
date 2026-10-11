@@ -66,6 +66,12 @@ local function InitializeDB()
   if ns.db.reminderDuration == nil then
     ns.db.reminderDuration = 3
   end
+  if ns.db.reminderFadeIn == nil then
+    ns.db.reminderFadeIn = true
+  end
+  if ns.db.reminderFadeOut == nil then
+    ns.db.reminderFadeOut = true
+  end
 end
 
 local function GetOmniumConfigID()
