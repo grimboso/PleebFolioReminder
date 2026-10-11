@@ -685,7 +685,8 @@ RefreshOptionsFrame = function(frame)
 
   local content = frame.Content
   local width = content:GetWidth() - 10
-  local y = frame.SpecTitle:GetBottom() - content:GetTop() - 10
+  -- Screen coordinates may be unresolved during the first OnShow.
+  local y = -284
 
   for index, spec in ipairs(specs) do
     local specID = spec.id
