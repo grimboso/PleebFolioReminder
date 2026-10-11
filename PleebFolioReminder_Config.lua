@@ -21,6 +21,7 @@ local pixelSize
 local pixelBackdrops = {}
 local optionsFrame
 local reminderFrame
+local reminderTimer
 local selectedSpecID
 local selectedLoadoutID
 local RefreshOptionsFrame
@@ -236,6 +237,12 @@ local function EnsureReminderFrame()
   reminderFrame:SetFrameLevel(100)
   SetBackdrop(reminderFrame, COLORS.panel, COLORS.accent)
   reminderFrame:EnableMouse(true)
+  reminderFrame:SetScript("OnHide", function()
+    if reminderTimer then
+      reminderTimer:Cancel()
+      reminderTimer = nil
+    end
+  end)
   reminderFrame:Hide()
 
   local text = CreateLabel(reminderFrame, "", 12, COLORS.text)
@@ -253,11 +260,26 @@ local function EnsureReminderFrame()
   return reminderFrame
 end
 
-function ns.ShowReminder(text)
+function ns.ShowReminder(text, kind)
+  if not ns.db.enabled
+    or (kind == "changed" and not ns.db.notifyChanged)
+    or (kind == "matching" and not ns.db.notifyMatching)
+    or (not ns.db.notifyChanged and not ns.db.notifyMatching)
+  then
+    return
+  end
+
   RefreshPixelLayout()
   local frame = EnsureReminderFrame()
+  if reminderTimer then
+    reminderTimer:Cancel()
+  end
   frame.Text:SetText(text)
   frame:Show()
+  reminderTimer = C_Timer.NewTimer(ns.db.reminderDuration, function()
+    reminderTimer = nil
+    frame:Hide()
+  end)
 end
 
 function ns.HideReminder()
@@ -362,13 +384,57 @@ local function CreateOptionsFrame()
   end)
   frame.AutoApplyCheck = autoApply
 
+  local changed = CreateCheckButton(content, "Show popup when Folio choices change")
+  PixelPoint(changed, "TOPLEFT", autoApply, "BOTTOMLEFT", 0, -16)
+  changed:SetScript("OnClick", function(self)
+    ns.SetReminderPreference("notifyChanged", self:GetChecked())
+  end)
+  frame.NotifyChangedCheck = changed
+
+  local matching = CreateCheckButton(content, "Show popup when Folio choices already match")
+  PixelPoint(matching, "TOPLEFT", changed, "BOTTOMLEFT", 0, -16)
+  matching:SetScript("OnClick", function(self)
+    ns.SetReminderPreference("notifyMatching", self:GetChecked())
+  end)
+  frame.NotifyMatchingCheck = matching
+
+  local popupHint = CreateLabel(content, "Turn both off for no popups.", 11, COLORS.muted)
+  PixelPoint(popupHint, "TOPLEFT", matching, "BOTTOMLEFT", 0, -10)
+
+  local durationLabel = CreateLabel(content, "Popup duration (seconds)", 12, COLORS.text)
+  PixelPoint(durationLabel, "TOPLEFT", popupHint, "BOTTOMLEFT", 0, -18)
+  local duration = CreateFrame("EditBox", nil, content)
+  PixelSize(duration, 70, 26)
+  PixelPoint(duration, "LEFT", durationLabel, "RIGHT", 12, 0)
+  SetBackdrop(duration, COLORS.control, COLORS.border)
+  duration:SetFont(_G.STANDARD_TEXT_FONT, 12, "")
+  duration:SetTextColor(unpack(COLORS.text))
+  duration:SetTextInsets(7, 7, 0, 0)
+  duration:SetAutoFocus(false)
+  duration:SetScript("OnEnterPressed", function(self)
+    self:ClearFocus()
+  end)
+  duration:SetScript("OnEscapePressed", function(self)
+    self:SetText(tostring(ns.db.reminderDuration))
+    self:ClearFocus()
+  end)
+  duration:SetScript("OnEditFocusLost", function(self)
+    local seconds = tonumber(self:GetText())
+    if seconds and seconds > 0 and seconds < math.huge then
+      ns.db.reminderDuration = seconds
+    end
+    self:SetText(tostring(ns.db.reminderDuration))
+  end)
+  frame.DurationInput = duration
+  frame.DurationLabel = durationLabel
+
   local help = CreateLabel(
     content,
     "Specialization rules are defaults. Loadout rules override only the Folio choices you set for that loadout.",
     11,
     COLORS.muted
   )
-  PixelPoint(help, "TOPLEFT", autoApply, "BOTTOMLEFT", 0, -16)
+  PixelPoint(help, "TOPLEFT", durationLabel, "BOTTOMLEFT", 0, -22)
   PixelPoint(help, "RIGHT", content, "RIGHT", -6, 0)
   help:SetWordWrap(true)
   local specTitle = CreateLabel(content, "Specialization", 13, COLORS.text)
@@ -592,6 +658,19 @@ RefreshOptionsFrame = function(frame)
   SetCheckValue(frame.AutoApplyCheck, ns.db.autoApply)
   frame.AutoApplyCheck:SetEnabled(ns.db.enabled)
   frame.AutoApplyCheck.Label:SetAlpha(ns.db.enabled and 1 or 0.45)
+  SetCheckValue(frame.NotifyChangedCheck, ns.db.notifyChanged)
+  SetCheckValue(frame.NotifyMatchingCheck, ns.db.notifyMatching)
+  frame.NotifyChangedCheck:SetEnabled(ns.db.enabled)
+  frame.NotifyMatchingCheck:SetEnabled(ns.db.enabled)
+  frame.NotifyChangedCheck.Label:SetAlpha(ns.db.enabled and 1 or 0.45)
+  frame.NotifyMatchingCheck.Label:SetAlpha(ns.db.enabled and 1 or 0.45)
+  local durationEnabled = ns.db.enabled and (ns.db.notifyChanged or ns.db.notifyMatching)
+  frame.DurationInput:SetEnabled(durationEnabled)
+  frame.DurationInput:SetAlpha(durationEnabled and 1 or 0.45)
+  frame.DurationLabel:SetAlpha(durationEnabled and 1 or 0.45)
+  if not frame.DurationInput:HasFocus() then
+    frame.DurationInput:SetText(tostring(ns.db.reminderDuration))
+  end
 
   local specs = ns.GetSpecs()
   if #specs == 0 then
@@ -606,7 +685,7 @@ RefreshOptionsFrame = function(frame)
 
   local content = frame.Content
   local width = content:GetWidth() - 10
-  local y = -150
+  local y = frame.SpecTitle:GetBottom() - content:GetTop() - 10
 
   for index, spec in ipairs(specs) do
     local specID = spec.id
