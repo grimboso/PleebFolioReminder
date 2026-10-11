@@ -257,6 +257,8 @@ local function EnsureReminderFrame()
     animation:Stop()
     reminderFrame.ReminderPhase = nil
     reminderFrame.ReminderFadeOut = nil
+    reminderFrame.ReminderSpecID = nil
+    reminderFrame.ReminderLoadoutID = nil
     reminderFrame:SetAlpha(1)
   end)
   reminderFrame:Hide()
@@ -287,11 +289,24 @@ function ns.ShowReminder(text, kind)
 
   RefreshPixelLayout()
   local frame = EnsureReminderFrame()
+  local specID = ns.GetCurrentSpecID()
+  local loadoutID = specID and ns.GetCurrentLoadoutID(specID) or nil
+  -- Talent updates for the same loadout must not restart an active reminder.
+  if frame:IsShown()
+    and frame.Text:GetText() == text
+    and frame.ReminderSpecID == specID
+    and frame.ReminderLoadoutID == loadoutID
+  then
+    return
+  end
+
   frame.Animation:Stop()
   local startingAlpha = ns.db.reminderFadeIn and 0 or 1
   local phaseDuration = ns.db.reminderDuration / 3
   frame.ReminderPhase = 1
   frame.ReminderFadeOut = ns.db.reminderFadeOut
+  frame.ReminderSpecID = specID
+  frame.ReminderLoadoutID = loadoutID
   frame.AlphaAnimation:SetDuration(phaseDuration)
   frame.AlphaAnimation:SetFromAlpha(startingAlpha)
   frame.AlphaAnimation:SetToAlpha(1)
