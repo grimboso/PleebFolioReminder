@@ -16,6 +16,7 @@ local OMNIUM_TREE_ID = 1186
 local eventFrame = CreateFrame("Frame")
 local runtimeEnabled = false
 local pendingCommitConfigID
+local pendingCommitDescription
 local manualChange
 local temporaryContext
 local RefreshRuntime
@@ -25,6 +26,7 @@ local RUNTIME_EVENTS = {
   "ACTIVE_PLAYER_SPECIALIZATION_CHANGED",
   "SELECTED_LOADOUT_CHANGED",
   "ACTIVE_COMBAT_CONFIG_CHANGED",
+  "PLAYER_TALENT_UPDATE",
   "TRAIT_CONFIG_CREATED",
   "TRAIT_CONFIG_DELETED",
   "TRAIT_CONFIG_LIST_UPDATED",
@@ -41,6 +43,7 @@ local CONTEXT_EVENTS = {
   ACTIVE_PLAYER_SPECIALIZATION_CHANGED = true,
   SELECTED_LOADOUT_CHANGED = true,
   ACTIVE_COMBAT_CONFIG_CHANGED = true,
+  PLAYER_TALENT_UPDATE = true,
 }
 
 local function InitializeDB()
@@ -54,6 +57,15 @@ local function InitializeDB()
   end
 
   ns.db = _G.PleebFolioReminderDB
+  if ns.db.notifyChanged == nil then
+    ns.db.notifyChanged = true
+  end
+  if ns.db.notifyMatching == nil then
+    ns.db.notifyMatching = true
+  end
+  if ns.db.reminderDuration == nil then
+    ns.db.reminderDuration = 3
+  end
 end
 
 local function GetOmniumConfigID()
@@ -546,6 +558,7 @@ end
 
 local function RollbackApply(configID)
   pendingCommitConfigID = nil
+  pendingCommitDescription = nil
   C_Traits.RollbackConfig(configID)
   return false
 end
@@ -556,6 +569,7 @@ local function ApplyChanges(configID, changes)
   end
 
   pendingCommitConfigID = configID
+  pendingCommitDescription = DescribeChanges(changes)
 
   for _, change in ipairs(changes) do
     if not C_Traits.SetSelection(configID, change.nodeID, change.entryID) then
@@ -595,7 +609,7 @@ local function ShowManualChange(configID, specID, loadoutID, change)
   ns.ShowManualChangePrompt(manualChange)
 end
 
-local function HandleExternalFolioChange(configID)
+local function HandleExternalFolioChange(configID, appliedDescription)
   if ns.GetFolioLockReason() then
     return
   end
@@ -626,20 +640,21 @@ local function HandleExternalFolioChange(configID)
     ns.ShowReminder("Omnium Folio: a saved choice is not unlocked or is no longer available.")
   elseif #changes == 0 then
     ClearManualChange()
-    ns.HideReminder()
+    if appliedDescription then
+      ns.ShowReminder("Omnium Folio: saved choices applied - " .. appliedDescription, "changed")
+    end
   else
     ShowManualChange(configID, specID, loadoutID, changes[1])
   end
 end
 
-RefreshRuntime = function()
+RefreshRuntime = function(notifyMatching)
   if not ns.db.enabled or ns.GetFolioLockReason() or manualChange then
     ns.HideReminder()
     return
   end
 
   if pendingCommitConfigID then
-    ns.ShowReminder("Omnium Folio: applying saved choices...")
     return
   end
 
@@ -665,13 +680,15 @@ RefreshRuntime = function()
   end
 
   if #changes == 0 then
-    ns.HideReminder()
+    if notifyMatching and not temporaryContext then
+      ns.ShowReminder("Omnium Folio: your current choices already match this talent setup.", "matching")
+    end
     return
   end
 
   local description = DescribeChanges(changes)
   if not ns.db.autoApply then
-    ns.ShowReminder("Omnium Folio: " .. description)
+    ns.ShowReminder("Omnium Folio: " .. description, "changed")
     return
   end
 
@@ -686,9 +703,7 @@ RefreshRuntime = function()
     return
   end
 
-  if ApplyChanges(configID, changes) then
-    ns.HideReminder()
-  else
+  if not ApplyChanges(configID, changes) then
     ns.ShowReminder("Omnium Folio: saved choices could not be applied.")
   end
 end
@@ -749,9 +764,7 @@ function ns.ResolveManualChange(action)
     ClearManualChange()
     ClearTemporaryOverride(specID, loadoutID, change.nodeID)
 
-    if ApplyChanges(change.configID, changes) then
-      ns.HideReminder()
-    else
+    if not ApplyChanges(change.configID, changes) then
       ns.ShowReminder("Omnium Folio: the saved choice could not be restored.")
     end
   end
@@ -779,6 +792,7 @@ local function SetRuntimeEnabled(enabled)
   end
 
   pendingCommitConfigID = nil
+  pendingCommitDescription = nil
   ClearManualChange()
   ClearTemporaryOverrides()
   ns.HideReminder()
@@ -793,6 +807,12 @@ end
 function ns.SetAutoApply(enabled)
   ns.db.autoApply = enabled
   RefreshAll()
+end
+
+function ns.SetReminderPreference(key, enabled)
+  ns.db[key] = enabled
+  ns.HideReminder()
+  ns.RefreshOptions()
 end
 
 local function OpenPleebFolioForBlizzardFolio(folioFrame)
@@ -870,7 +890,7 @@ local function HandleRuntimeEvent(event, ...)
     if ns.GetFolioLockReason() then
       ns.HideReminder()
     else
-      RefreshRuntime()
+      RefreshRuntime(true)
     end
 
     ns.RefreshOptions()
@@ -888,6 +908,7 @@ local function HandleRuntimeEvent(event, ...)
     local configID = ...
     if configID == pendingCommitConfigID then
       pendingCommitConfigID = nil
+      pendingCommitDescription = nil
       ns.ShowReminder("Omnium Folio: saved choices could not be applied.")
     end
   elseif event == "TRAIT_CONFIG_UPDATED" and not ns.GetFolioLockReason() then
@@ -897,9 +918,10 @@ local function HandleRuntimeEvent(event, ...)
     if configID == omniumConfigID then
       if configID == pendingCommitConfigID then
         if not C_Traits.ConfigHasStagedChanges(configID) then
+          local description = pendingCommitDescription
           pendingCommitConfigID = nil
-          ns.HideReminder()
-          HandleExternalFolioChange(configID)
+          pendingCommitDescription = nil
+          HandleExternalFolioChange(configID, description)
         end
       else
         HandleExternalFolioChange(configID)
