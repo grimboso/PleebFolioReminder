@@ -238,24 +238,25 @@ local function EnsureReminderFrame()
   reminderFrame:EnableMouse(true)
   local animation = reminderFrame:CreateAnimationGroup()
   reminderFrame.Animation = animation
-  local fadeIn = animation:CreateAnimation("Alpha")
-  fadeIn:SetOrder(1)
-  fadeIn:SetToAlpha(1)
-  reminderFrame.FadeIn = fadeIn
-  local hold = animation:CreateAnimation("Alpha")
-  hold:SetOrder(2)
-  hold:SetFromAlpha(1)
-  hold:SetToAlpha(1)
-  reminderFrame.Hold = hold
-  local fadeOut = animation:CreateAnimation("Alpha")
-  fadeOut:SetOrder(3)
-  fadeOut:SetFromAlpha(1)
-  reminderFrame.FadeOut = fadeOut
+  local alpha = animation:CreateAnimation("Alpha")
+  reminderFrame.AlphaAnimation = alpha
   animation:SetScript("OnFinished", function()
-    reminderFrame:Hide()
+    local phase = reminderFrame.ReminderPhase + 1
+    if phase == 4 then
+      reminderFrame:Hide()
+      return
+    end
+
+    reminderFrame.ReminderPhase = phase
+    reminderFrame:SetAlpha(1)
+    alpha:SetFromAlpha(1)
+    alpha:SetToAlpha(phase == 3 and reminderFrame.ReminderFadeOut and 0 or 1)
+    animation:Play()
   end)
   reminderFrame:SetScript("OnHide", function()
     animation:Stop()
+    reminderFrame.ReminderPhase = nil
+    reminderFrame.ReminderFadeOut = nil
     reminderFrame:SetAlpha(1)
   end)
   reminderFrame:Hide()
@@ -287,13 +288,14 @@ function ns.ShowReminder(text, kind)
   RefreshPixelLayout()
   local frame = EnsureReminderFrame()
   frame.Animation:Stop()
+  local startingAlpha = ns.db.reminderFadeIn and 0 or 1
   local phaseDuration = ns.db.reminderDuration / 3
-  frame.FadeIn:SetDuration(phaseDuration)
-  frame.FadeIn:SetFromAlpha(ns.db.reminderFadeIn and 0 or 1)
-  frame.Hold:SetDuration(phaseDuration)
-  frame.FadeOut:SetDuration(phaseDuration)
-  frame.FadeOut:SetToAlpha(ns.db.reminderFadeOut and 0 or 1)
-  frame:SetAlpha(1)
+  frame.ReminderPhase = 1
+  frame.ReminderFadeOut = ns.db.reminderFadeOut
+  frame.AlphaAnimation:SetDuration(phaseDuration)
+  frame.AlphaAnimation:SetFromAlpha(startingAlpha)
+  frame.AlphaAnimation:SetToAlpha(1)
+  frame:SetAlpha(startingAlpha)
   frame.Text:SetText(text)
   frame:Show()
   frame.Animation:Play()
