@@ -21,7 +21,6 @@ local pixelSize
 local pixelBackdrops = {}
 local optionsFrame
 local reminderFrame
-local reminderTimer
 local selectedSpecID
 local selectedLoadoutID
 local RefreshOptionsFrame
@@ -237,11 +236,27 @@ local function EnsureReminderFrame()
   reminderFrame:SetFrameLevel(100)
   SetBackdrop(reminderFrame, COLORS.panel, COLORS.accent)
   reminderFrame:EnableMouse(true)
+  local animation = reminderFrame:CreateAnimationGroup()
+  reminderFrame.Animation = animation
+  local fadeIn = animation:CreateAnimation("Alpha")
+  fadeIn:SetOrder(1)
+  fadeIn:SetToAlpha(1)
+  reminderFrame.FadeIn = fadeIn
+  local hold = animation:CreateAnimation("Alpha")
+  hold:SetOrder(2)
+  hold:SetFromAlpha(1)
+  hold:SetToAlpha(1)
+  reminderFrame.Hold = hold
+  local fadeOut = animation:CreateAnimation("Alpha")
+  fadeOut:SetOrder(3)
+  fadeOut:SetFromAlpha(1)
+  reminderFrame.FadeOut = fadeOut
+  animation:SetScript("OnFinished", function()
+    reminderFrame:Hide()
+  end)
   reminderFrame:SetScript("OnHide", function()
-    if reminderTimer then
-      reminderTimer:Cancel()
-      reminderTimer = nil
-    end
+    animation:Stop()
+    reminderFrame:SetAlpha(1)
   end)
   reminderFrame:Hide()
 
@@ -271,15 +286,17 @@ function ns.ShowReminder(text, kind)
 
   RefreshPixelLayout()
   local frame = EnsureReminderFrame()
-  if reminderTimer then
-    reminderTimer:Cancel()
-  end
+  frame.Animation:Stop()
+  local phaseDuration = ns.db.reminderDuration / 3
+  frame.FadeIn:SetDuration(phaseDuration)
+  frame.FadeIn:SetFromAlpha(ns.db.reminderFadeIn and 0 or 1)
+  frame.Hold:SetDuration(phaseDuration)
+  frame.FadeOut:SetDuration(phaseDuration)
+  frame.FadeOut:SetToAlpha(ns.db.reminderFadeOut and 0 or 1)
+  frame:SetAlpha(1)
   frame.Text:SetText(text)
   frame:Show()
-  reminderTimer = C_Timer.NewTimer(ns.db.reminderDuration, function()
-    reminderTimer = nil
-    frame:Hide()
-  end)
+  frame.Animation:Play()
 end
 
 function ns.HideReminder()
@@ -428,13 +445,27 @@ local function CreateOptionsFrame()
   frame.DurationInput = duration
   frame.DurationLabel = durationLabel
 
+  local fadeIn = CreateCheckButton(content, "Fade in")
+  PixelPoint(fadeIn, "TOPLEFT", durationLabel, "BOTTOMLEFT", 0, -20)
+  fadeIn:SetScript("OnClick", function(self)
+    ns.SetReminderPreference("reminderFadeIn", self:GetChecked())
+  end)
+  frame.FadeInCheck = fadeIn
+
+  local fadeOut = CreateCheckButton(content, "Fade out")
+  PixelPoint(fadeOut, "LEFT", fadeIn, "LEFT", 160, 0)
+  fadeOut:SetScript("OnClick", function(self)
+    ns.SetReminderPreference("reminderFadeOut", self:GetChecked())
+  end)
+  frame.FadeOutCheck = fadeOut
+
   local help = CreateLabel(
     content,
     "Specialization rules are defaults. Loadout rules override only the Folio choices you set for that loadout.",
     11,
     COLORS.muted
   )
-  PixelPoint(help, "TOPLEFT", durationLabel, "BOTTOMLEFT", 0, -22)
+  PixelPoint(help, "TOPLEFT", fadeIn, "BOTTOMLEFT", 0, -16)
   PixelPoint(help, "RIGHT", content, "RIGHT", -6, 0)
   help:SetWordWrap(true)
   local specTitle = CreateLabel(content, "Specialization", 13, COLORS.text)
@@ -668,6 +699,12 @@ RefreshOptionsFrame = function(frame)
   frame.DurationInput:SetEnabled(durationEnabled)
   frame.DurationInput:SetAlpha(durationEnabled and 1 or 0.45)
   frame.DurationLabel:SetAlpha(durationEnabled and 1 or 0.45)
+  SetCheckValue(frame.FadeInCheck, ns.db.reminderFadeIn)
+  SetCheckValue(frame.FadeOutCheck, ns.db.reminderFadeOut)
+  frame.FadeInCheck:SetEnabled(durationEnabled)
+  frame.FadeOutCheck:SetEnabled(durationEnabled)
+  frame.FadeInCheck.Label:SetAlpha(durationEnabled and 1 or 0.45)
+  frame.FadeOutCheck.Label:SetAlpha(durationEnabled and 1 or 0.45)
   if not frame.DurationInput:HasFocus() then
     frame.DurationInput:SetText(tostring(ns.db.reminderDuration))
   end
@@ -686,7 +723,7 @@ RefreshOptionsFrame = function(frame)
   local content = frame.Content
   local width = content:GetWidth() - 10
   -- Screen coordinates may be unresolved during the first OnShow.
-  local y = -284
+  local y = -316
 
   for index, spec in ipairs(specs) do
     local specID = spec.id
