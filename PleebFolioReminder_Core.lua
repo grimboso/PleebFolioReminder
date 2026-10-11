@@ -926,6 +926,12 @@ local function HandleRuntimeEvent(event, ...)
       else
         HandleExternalFolioChange(configID)
       end
+    elseif configID == C_ClassTalents.GetActiveConfigID()
+      and not C_Traits.ConfigHasStagedChanges(configID)
+    then
+      ClearManualChange()
+      ClearTemporaryOverrides()
+      RefreshRuntime(true)
     end
   end
 
