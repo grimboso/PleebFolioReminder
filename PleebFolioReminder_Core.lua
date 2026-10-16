@@ -17,6 +17,8 @@ local eventFrame = CreateFrame("Frame")
 local runtimeEnabled = false
 local pendingCommitConfigID
 local pendingCommitDescription
+local committedFolioChoices
+local waitingForFolio = false
 local manualChange
 local temporaryContext
 local RefreshRuntime
@@ -206,6 +208,25 @@ end
 
 local function GetCommittedEntryID(nodeInfo)
   return nodeInfo.entryIDsWithCommittedRanks[1]
+end
+
+local function UpdateCommittedFolioChoices(configID)
+  local initialized = committedFolioChoices ~= nil
+  committedFolioChoices = committedFolioChoices or {}
+  local changed = false
+
+  for _, nodeID in ipairs(C_Traits.GetTreeNodes(OMNIUM_TREE_ID)) do
+    local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
+    if nodeInfo and IsSelectionNode(nodeInfo) then
+      local entryID = GetCommittedEntryID(nodeInfo)
+      if committedFolioChoices[nodeID] ~= entryID then
+        committedFolioChoices[nodeID] = entryID
+        changed = true
+      end
+    end
+  end
+
+  return initialized and changed
 end
 
 function ns.GetFolioChoiceNodes()
@@ -659,12 +680,17 @@ RefreshRuntime = function(notifyMatching)
     return
   end
 
+  waitingForFolio = false
+
   local configID = GetOmniumConfigID()
   local specID, loadoutID = GetCurrentContext()
   if not configID or not specID then
+    waitingForFolio = not configID
     ns.HideReminder()
     return
   end
+
+  UpdateCommittedFolioChoices(configID)
 
   local rules = BuildEffectiveRules(specID, loadoutID)
   if not next(rules) then
@@ -695,11 +721,13 @@ RefreshRuntime = function(notifyMatching)
 
   local applyState = GetApplyState(configID)
   if applyState == "unavailable" then
+    waitingForFolio = true
     ns.ShowReminder("Omnium Folio: " .. description .. " - currently unavailable")
     return
   end
 
   if applyState == "busy" then
+    waitingForFolio = true
     ns.ShowReminder("Omnium Folio: " .. description .. " - waiting for the Folio")
     return
   end
@@ -794,6 +822,8 @@ local function SetRuntimeEnabled(enabled)
 
   pendingCommitConfigID = nil
   pendingCommitDescription = nil
+  committedFolioChoices = nil
+  waitingForFolio = false
   ClearManualChange()
   ClearTemporaryOverrides()
   ns.HideReminder()
@@ -917,15 +947,18 @@ local function HandleRuntimeEvent(event, ...)
     local omniumConfigID = GetOmniumConfigID()
 
     if configID == omniumConfigID then
-      if configID == pendingCommitConfigID then
-        if not C_Traits.ConfigHasStagedChanges(configID) then
+      if not C_Traits.ConfigHasStagedChanges(configID) then
+        local choicesChanged = UpdateCommittedFolioChoices(configID)
+        if configID == pendingCommitConfigID then
           local description = pendingCommitDescription
           pendingCommitConfigID = nil
           pendingCommitDescription = nil
           HandleExternalFolioChange(configID, description)
+        elseif choicesChanged then
+          HandleExternalFolioChange(configID)
+        elseif waitingForFolio then
+          RefreshRuntime()
         end
-      else
-        HandleExternalFolioChange(configID)
       end
     elseif configID == C_ClassTalents.GetActiveConfigID()
       and not C_Traits.ConfigHasStagedChanges(configID)
