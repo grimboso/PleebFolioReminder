@@ -19,9 +19,14 @@ local pendingCommitConfigID
 local pendingCommitDescription
 local committedFolioChoices
 local waitingForFolio = false
+local pendingContextRefresh = false
+local pendingFolioConfigID
+local pendingFolioDescription
+local refreshFramesRemaining = 0
 local manualChange
 local temporaryContext
 local RefreshRuntime
+local QueueFolioRefresh
 
 local RUNTIME_EVENTS = {
   "PLAYER_ENTERING_WORLD",
@@ -398,7 +403,11 @@ local function SetLoadoutRuleValue(configID, specID, nodeID, entryID)
 end
 
 local function RefreshAll()
-  RefreshRuntime()
+  if pendingContextRefresh then
+    QueueFolioRefresh()
+  else
+    RefreshRuntime()
+  end
   ns.RefreshOptions()
 end
 
@@ -676,7 +685,7 @@ RefreshRuntime = function(notifyMatching)
     return
   end
 
-  if pendingCommitConfigID then
+  if pendingContextRefresh or pendingCommitConfigID then
     return
   end
 
@@ -801,6 +810,47 @@ function ns.ResolveManualChange(action)
   ns.RefreshOptions()
 end
 
+local function RunDeferredFolioRefresh(self)
+  refreshFramesRemaining = refreshFramesRemaining - 1
+  if refreshFramesRemaining > 0 then
+    return
+  end
+
+  self:SetScript("OnUpdate", nil)
+  if ns.GetFolioLockReason() or pendingCommitConfigID then
+    return
+  end
+
+  local contextChanged = pendingContextRefresh
+  local configID = pendingFolioConfigID
+  local description = pendingFolioDescription
+  pendingContextRefresh = false
+  pendingFolioConfigID = nil
+  pendingFolioDescription = nil
+
+  if contextChanged then
+    ClearManualChange()
+    ClearTemporaryOverrides()
+    RefreshRuntime(true)
+    pendingContextRefresh = pendingContextRefresh or waitingForFolio
+  elseif configID and not C_Traits.ConfigHasStagedChanges(configID) then
+    local choicesChanged = UpdateCommittedFolioChoices(configID)
+    if description or choicesChanged then
+      HandleExternalFolioChange(configID, description)
+    elseif waitingForFolio then
+      RefreshRuntime()
+    end
+  end
+
+  ns.RefreshOptions()
+end
+
+QueueFolioRefresh = function()
+  -- Loadout and Folio notifications can span several frames of the same swap.
+  refreshFramesRemaining = 3
+  eventFrame:SetScript("OnUpdate", RunDeferredFolioRefresh)
+end
+
 local function SetRuntimeEnabled(enabled)
   if runtimeEnabled == enabled then
     return
@@ -812,7 +862,8 @@ local function SetRuntimeEnabled(enabled)
     for _, event in ipairs(RUNTIME_EVENTS) do
       eventFrame:RegisterEvent(event)
     end
-    RefreshRuntime()
+    pendingContextRefresh = true
+    QueueFolioRefresh()
     return
   end
 
@@ -824,6 +875,11 @@ local function SetRuntimeEnabled(enabled)
   pendingCommitDescription = nil
   committedFolioChoices = nil
   waitingForFolio = false
+  pendingContextRefresh = false
+  pendingFolioConfigID = nil
+  pendingFolioDescription = nil
+  refreshFramesRemaining = 0
+  eventFrame:SetScript("OnUpdate", nil)
   ClearManualChange()
   ClearTemporaryOverrides()
   ns.HideReminder()
@@ -906,7 +962,9 @@ local function HandleRuntimeEvent(event, ...)
       return
     end
 
-    if manualChange then
+    if pendingContextRefresh or pendingFolioConfigID then
+      QueueFolioRefresh()
+    elseif manualChange then
       ns.ShowManualChangePrompt(manualChange)
     else
       RefreshRuntime()
@@ -917,19 +975,20 @@ local function HandleRuntimeEvent(event, ...)
   if CONTEXT_EVENTS[event] then
     ClearManualChange()
     ClearTemporaryOverrides()
-
-    if ns.GetFolioLockReason() then
-      ns.HideReminder()
-    else
-      RefreshRuntime(true)
-    end
+    ns.HideReminder()
+    pendingContextRefresh = true
+    QueueFolioRefresh()
 
     ns.RefreshOptions()
     return
   end
 
   if event == "PLAYER_ENTERING_WORLD" then
-    RefreshAll()
+    ClearManualChange()
+    ClearTemporaryOverrides()
+    pendingContextRefresh = true
+    QueueFolioRefresh()
+    ns.RefreshOptions()
     return
   end
 
@@ -941,31 +1000,31 @@ local function HandleRuntimeEvent(event, ...)
       pendingCommitConfigID = nil
       pendingCommitDescription = nil
       ns.ShowReminder("Omnium Folio: saved choices could not be applied.")
+      if pendingContextRefresh then
+        QueueFolioRefresh()
+      end
     end
-  elseif event == "TRAIT_CONFIG_UPDATED" and not ns.GetFolioLockReason() then
+  elseif event == "TRAIT_CONFIG_UPDATED" then
     local configID = ...
     local omniumConfigID = GetOmniumConfigID()
 
     if configID == omniumConfigID then
       if not C_Traits.ConfigHasStagedChanges(configID) then
-        local choicesChanged = UpdateCommittedFolioChoices(configID)
         if configID == pendingCommitConfigID then
-          local description = pendingCommitDescription
+          pendingFolioDescription = pendingCommitDescription
           pendingCommitConfigID = nil
           pendingCommitDescription = nil
-          HandleExternalFolioChange(configID, description)
-        elseif choicesChanged then
-          HandleExternalFolioChange(configID)
-        elseif waitingForFolio then
-          RefreshRuntime()
         end
+        pendingFolioConfigID = configID
+        QueueFolioRefresh()
       end
     elseif configID == C_ClassTalents.GetActiveConfigID()
       and not C_Traits.ConfigHasStagedChanges(configID)
     then
       ClearManualChange()
       ClearTemporaryOverrides()
-      RefreshRuntime(true)
+      pendingContextRefresh = true
+      QueueFolioRefresh()
     end
   end
 
