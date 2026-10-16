@@ -160,11 +160,6 @@ function ns.GetCurrentLoadoutID(specID)
     return nil
   end
 
-  local activeConfigID = C_ClassTalents.GetActiveConfigID()
-  if IsSavedLoadoutForSpec(activeConfigID, specID) then
-    return activeConfigID
-  end
-
   local selectedConfigID = C_ClassTalents.GetLastSelectedSavedConfigID(specID)
   if IsSavedLoadoutForSpec(selectedConfigID, specID) then
     return selectedConfigID
